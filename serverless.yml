@@ -1,12 +1,22 @@
-service:
-  name: ignitecertificate
+org: erickivel
+app: ignitecertificate
+service: ignitecertificate
+
+frameworkVersion: '2'
 
 plugins:
   - serverless-offline
   - serverless-webpack
   - serverless-dynamodb-local
+  - serverless-iam-roles-per-function
+  - serverless-dotenv-plugin
 
 custom:
+  dotenv:
+    path: ".env"
+    include:
+      - AWS_BUCKET
+      - AWS_URL
   webpack: 
     webpackConfig: ./webpack.config.js
     includeModules: true
@@ -21,30 +31,71 @@ custom:
 
 provider: 
   name: aws
+  lambdaHashingVersion: "20201221"
   runtime: nodejs14.x
   region: sa-east-1
-
+  iamRoleStatements:
+    - Effect: Allow
+      Action: 
+        - dynamodb:*
+      Resource: 
+        - "*"
+    - Effect: Allow
+      Action:
+        - s3:*
+        - s3:PutObject
+        - s3:PutObjectAcl
+      Resource: 
+        - "*"
+  
 functions: 
   hello:
     handler: src/functions/hello.handle
+    events:
+      - http:
+          path: /hello
+          cors: true
+          method: GET
+  generateCertificate:
+    handler: src/functions/generateCertificate.handle
     events: 
       - http: 
-          path: /hello
-          method: GET
+          path: /generateCertificate
+          method: POST
           cors: true
-
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+          - dynamodb:PutItem
+        Resource: 
+          - "arn:aws:dynamodb:${self.provider.region}:*:table/users_certificates"
+  verifyCertificate:
+    handler: src/functions/verifyCertificate.handle
+    events:
+      - http: 
+          path: /verifyCertificate/{id}
+          method: POST
+          cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action: 
+          - dynamodb:Query
+        Resource: 
+          - "arn:aws:dynamodb:${self.provider.region}:*:table/users_certificates"
+    
 resources:
   Resources:
     dbCertificateUsers:
       Type: AWS::DynamoDB::Table
-      Properties: 
-        TableName: users_certificates
+      Properties:
         ProvisionedThroughput:
-          ReadCapacityUnits: 5
           WriteCapacityUnits: 5
+          ReadCapacityUnits: 5
+        TableName: users_certificates
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
-        KeySchema: 
+        KeySchema:
           - AttributeName: id
             KeyType: HASH
